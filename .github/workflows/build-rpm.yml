@@ -1,0 +1,143 @@
+name: build-rpm
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rpm:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          dnf -y install \
+            rpm-build rpmdevtools \
+            tar gzip git \
+            python3 systemd
+
+      - name: Determine version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building version: $VERSION"
+
+      - name: Setup rpmbuild tree
+        run: rpmdev-setuptree
+
+      - name: Create source tarball
+        run: |
+          set -euo pipefail
+          NAME="reboot-guard"
+          WORK="/tmp/${NAME}-${VERSION}"
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+
+          # Required files (adjust if your repo layout differs)
+          install -m 0755 ./rguard "$WORK/rguard"
+          install -m 0644 ./rguard.service "$WORK/rguard.service"
+
+          # Optional docs/licenses if present
+          if [[ -f ./README.md ]]; then install -m 0644 ./README.md "$WORK/README.md"; fi
+          if [[ -f ./LICENSE ]]; then install -m 0644 ./LICENSE "$WORK/LICENSE"; fi
+          if [[ -f ./COPYING ]]; then install -m 0644 ./COPYING "$WORK/COPYING"; fi
+
+          tar -C /tmp -czf "$HOME/rpmbuild/SOURCES/${NAME}-${VERSION}.tar.gz" "${NAME}-${VERSION}"
+          ls -lah "$HOME/rpmbuild/SOURCES/${NAME}-${VERSION}.tar.gz"
+
+      - name: Write SPEC file
+        run: |
+          set -euo pipefail
+          cat > "$HOME/rpmbuild/SPECS/reboot-guard.spec" <<'EOF'
+          Name:           reboot-guard
+          Version:        %{?pkgver}%{!?pkgver:0.0.0}
+          Release:        1%{?dist}
+          Summary:        Block systemd-initiated shutdown until condition checks pass
+
+          License:        GPL-3.0-or-later
+          URL:            https://github.com/mschabhuettl/reboot-guard
+          Source0:        %{name}-%{version}.tar.gz
+
+          BuildArch:      noarch
+          Requires:       python3
+          Requires:       systemd
+
+          %description
+          reboot-guard blocks systemd-initiated poweroff/reboot/halt targets until configurable
+          condition checks pass. It can be used interactively or via a systemd service.
+
+          %prep
+          %setup -q
+
+          %install
+          install -Dpm0755 rguard %{buildroot}%{_sbindir}/rguard
+          install -Dpm0644 rguard.service %{buildroot}%{_unitdir}/rguard.service
+
+          %post
+          /bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+          %preun
+          if [ "$1" -eq 0 ]; then
+            /bin/systemctl disable --now rguard.service >/dev/null 2>&1 || :
+          fi
+
+          %postun
+          /bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+          %files
+          %{_sbindir}/rguard
+          %{_unitdir}/rguard.service
+          %doc README.md
+          %license LICENSE
+          %license COPYING
+
+          %changelog
+          * Mon Feb 09 2026 Matthias Schabhüttl - %{?pkgver}%{!?pkgver:0.0.0}-1
+          - Python 3 port and modernized service file
+          EOF
+
+          # NOTE: %doc/%license entries are fine if files exist, but rpm will error if missing.
+          # Make the SPEC tolerant by removing missing entries:
+          for f in README.md LICENSE COPYING; do
+            if [[ ! -f "/tmp/reboot-guard-${VERSION}/${f}" ]]; then
+              sed -i "\|^%doc ${f}$|d" "$HOME/rpmbuild/SPECS/reboot-guard.spec"
+              sed -i "\|^%license ${f}$|d" "$HOME/rpmbuild/SPECS/reboot-guard.spec"
+            fi
+          done
+
+          sed -n '1,120p' "$HOME/rpmbuild/SPECS/reboot-guard.spec"
+
+      - name: Build SRPM + RPM
+        run: |
+          set -euo pipefail
+          rpmbuild -ba "$HOME/rpmbuild/SPECS/reboot-guard.spec" \
+            --define "pkgver ${VERSION}"
+
+          find "$HOME/rpmbuild" -maxdepth 3 -type f -name "*.rpm" -o -name "*.src.rpm" -print
+
+      - name: Upload artifacts (workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-artifacts
+          path: |
+            /github/home/rpmbuild/RPMS/**/*.rpm
+            /github/home/rpmbuild/SRPMS/*.src.rpm
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            /github/home/rpmbuild/RPMS/**/*.rpm
+            /github/home/rpmbuild/SRPMS/*.src.rpm
+          fail_on_unmatched_files: true
