@@ -10,7 +10,28 @@ Block systemd-initiated poweroff/reboot/halt until configurable condition checks
 
 ### Installation
 
-#### Manual install (distro-agnostic)
+#### Option A: Install from GitHub Releases (recommended)
+
+1. Download the RPM from GitHub Releases and install it with `dnf` (Fedora/RHEL-like systems):
+
+    ```
+    sudo dnf install -y ./reboot-guard-1.0.2-1.*.noarch.rpm
+    ```
+
+   Or install via `rpm` (no dependency resolution):
+
+    ```
+    sudo rpm -Uvh ./reboot-guard-1.0.2-1.*.noarch.rpm
+    ```
+
+2. Quick sanity check:
+
+    ```
+    command -v rguard
+    sudo rguard --help | head
+    ```
+
+#### Option B: Manual install (distro-agnostic)
 
 1. Install `rguard` somewhere in your PATH (common choices: `/usr/local/sbin` or `/usr/sbin`):
 
@@ -21,7 +42,14 @@ Block systemd-initiated poweroff/reboot/halt until configurable condition checks
     sudo chmod 0755 /usr/local/sbin/rguard
     ```
 
-2. Quick sanity check:
+2. (Optional) Install the example systemd unit:
+
+    ```
+    sudo install -m 0644 rguard.service /etc/systemd/system/rguard.service
+    sudo systemctl daemon-reload
+    ```
+
+3. Quick sanity check:
 
     ```
     sudo rguard --help | head
@@ -93,6 +121,44 @@ Block systemd-initiated poweroff/reboot/halt until configurable condition checks
 ### Instructions for daemon service (systemd)
 
 This repo ships an example unit `rguard.service`. **Important:** the default `ExecStart` uses `--run false` which will block shutdown forever unless you stop the service.
+
+#### If installed via RPM
+
+1. Inspect the installed unit:
+
+    ```
+    systemctl cat rguard.service
+    ```
+
+2. Configure via drop-in override (recommended):
+
+    ```
+    sudo systemctl edit rguard.service
+    ```
+
+   Example override (replace the policy to match your needs):
+
+    ```
+    [Service]
+    ExecStart=
+    ExecStart=/usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin rguard --interval 30 --require-file /run/.allow-shutdown
+    ```
+
+3. Enable + start:
+
+    ```
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now rguard.service
+    ```
+
+4. Watch logs:
+
+    ```
+    systemctl status rguard -n50 --no-pager
+    journalctl -fu rguard
+    ```
+
+#### If installed manually
 
 1. Install the unit:
 
