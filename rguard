@@ -1,6 +1,7 @@
-#!/usr/bin/python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright 2015, 2017 Ryan Sawhill Aroha <rsaw@redhat.com>
+# Copyright 2026 Matthias Schabhüttl <matthias@matthiasschabhuettl.com>
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -47,6 +48,14 @@ def call(cmd, showStdout=True, shell=False):
         return True
     else:
         return False
+
+
+def check_output_text(cmd):
+    """Run *cmd* and return stdout as text (py3-safe)."""
+    out = subprocess.check_output(cmd)
+    if isinstance(out, (bytes, bytearray)):
+        return out.decode(errors="replace")
+    return str(out)
 
 
 class RebootGuard:
@@ -104,11 +113,11 @@ class RebootGuard:
                 logging.error("Unexpected error reloading systemd")
 
     def systemd_unit_is_blocked(self, unit):
-        """Return True if systemd *unit* is configured with RefuseManualStart=yes"""  
+        """Return True if systemd *unit* is configured with RefuseManualStart=yes"""
         cmd = ['systemctl', 'show', unit, '-p', 'RefuseManualStart']
         try:
-            out = subprocess.check_output(cmd)
-        except:
+            out = check_output_text(cmd)
+        except Exception:
             logging.error("Unexpected error running: {}".format(' '.join(cmd)))
             return
         if out.strip() == 'RefuseManualStart=yes':
@@ -126,7 +135,7 @@ class RebootGuard:
                 try:
                     with open(cfg, 'w') as f:
                         f.write('[Unit]\nRefuseManualStart=yes\n')
-                except:
+                except Exception:
                     logging.error("Unexpected error writing to '{}'".format(cfg))
                 else:
                     logging.warning("☹  Blocked {}".format(unit))
@@ -165,7 +174,7 @@ class ConditionChecker:
     Keyword arguments:
         - forbidFiles -- Forbidden files for which to check
         - requireFiles -- Required files for which to check
-        - units -- Active systemd units for which to check 
+        - units -- Active systemd units for which to check
         - cmds -- Process cmd names for which to check
         - cmdArgs -- Process cmd name+args for which to check
         - runCmds -- Arbitrary commands to execute (return code is checked)
@@ -179,7 +188,7 @@ class ConditionChecker:
     def __init__(self, forbidFiles=[], requireFiles=[], units=[], cmds=[], cmdArgs=[], runCmds=[]):
         """Initialize condition checks."""
         self.forbidFiles = forbidFiles
-        self.requireFiles = requireFiles 
+        self.requireFiles = requireFiles
         self.units = units
         self.cmds = cmds
         self.cmdArgs = cmdArgs
@@ -226,7 +235,7 @@ class ConditionChecker:
             logging.info("✔ Pass: All require-files exist")
         elif self.lastStatus is None:
             logging.debug("No require-file checks defined")
-    
+
     def test_active_units(self):
         if self.units:
             for u in self.units:
@@ -302,7 +311,7 @@ class GracefulDeath:
         self.receivedSignal = True
         if signum in [2, 3, 15]:
             self.receivedTermSignal = True
-            
+
 
 class CustomFormatter(argparse.RawDescriptionHelpFormatter):
     """This custom formatter eliminates the duplicate metavar in help lines."""
