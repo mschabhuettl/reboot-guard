@@ -27,8 +27,8 @@ from stat import S_IWRITE
 
 prog = 'rguard'
 vers = {}
-vers['version'] = '1.0.1'
-vers['date'] = '2017/04/26'
+vers['version'] = '1.0.2'
+vers['date'] = '2026-02-09'
 
 
 def ret(returnCode):
