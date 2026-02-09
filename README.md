@@ -1,55 +1,62 @@
-# reboot-guard
-Block systemd-initiated poweroff/reboot/halt until configurable condition checks pass
-
+# reboot-guard  
+Block systemd-initiated poweroff/reboot/halt until configurable condition checks pass.
 
 ### Requirements
 
-- Python 2.7
-- systemd
-- Can be launched from a simple systemd service or run manually
+- Python 3 (>= 3.8 recommended)  
+- systemd (needs `systemctl`)  
+- Root privileges (must run as root)  
+- Can be run manually or managed by a systemd service  
 
+### Installation
+
+#### Manual install (distro-agnostic)
+
+1. Install `rguard` somewhere in your PATH (common choices: `/usr/local/sbin` or `/usr/sbin`):
+
+    ```
+    sudo install -d -m 0755 /usr/local/sbin
+    sudo curl -fsSL https://raw.githubusercontent.com/mschabhuettl/reboot-guard/main/rguard 
+      -o /usr/local/sbin/rguard
+    sudo chmod 0755 /usr/local/sbin/rguard
+    ```
+
+2. Quick sanity check:
+
+    ```
+    sudo rguard --help | head
+    ```
 
 ### Interactive walk-thru: ONE-SHOT
 
-1. Download and execute `rguard` without any condition checks to confirm it really can block shutdown.
+1. Execute `rguard` without any condition checks to confirm it can block shutdown.
 
     ```
-    [root]# cd /usr/sbin
-    [root]# curl -kO https://raw.githubusercontent.com/ryran/reboot-guard/master/rguard
-      % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                     Dload  Upload   Total   Spent    Left  Speed
-    100 16575  100 16575    0     0  54536      0 --:--:-- --:--:-- --:--:-- 54702
-    [root]# ll rguard
-    -rwxr-xr-x. 1 root root 16575 Sep  1 02:46 rguard
     [root]# rguard -1
     WARNING: ☹  Blocked poweroff.target
     WARNING: ☹  Blocked reboot.target
     WARNING: ☹  Blocked halt.target
-    [root]# 
+    [root]#
     ```
 
-1. Try to reboot/shutdown/halt and fail. Note that the old legacy commands (`halt`, `shutdown`, `reboot`) trigger wall messages regardless.
+2. Try to reboot/shutdown/halt and fail. Note: legacy commands (`halt`, `shutdown`, `reboot`) may still emit wall messages even if systemd refuses the action.
 
     ```
     [root]# systemctl reboot
     Failed to issue method call: Operation refused, unit reboot.target may be requested by dependency only.
-    [root]# shutdown -h now
+    [root]# systemctl poweroff
     Failed to issue method call: Operation refused, unit poweroff.target may be requested by dependency only.
-
-    Broadcast message from root@localhost on pts/0 (Mon 2015-08-31 02:28:05 EDT):
-
-    The system is going down for power-off NOW!
     [root]#
     ```
 
-1. Disable the blocks.
+3. Disable the blocks.
 
     ```
     [root]# rguard -0
     WARNING: ☻  Unblocked poweroff.target
     WARNING: ☻  Unblocked reboot.target
     WARNING: ☻  Unblocked halt.target
-    [root]# 
+    [root]#
     ```
 
 ### Interactive walk-thru: CONDITION CHECKS
@@ -63,10 +70,10 @@ Block systemd-initiated poweroff/reboot/halt until configurable condition checks
     WARNING: ☹  Blocked poweroff.target
     WARNING: ☹  Blocked reboot.target
     WARNING: ☹  Blocked halt.target
-    [root]# 
+    [root]#
     ```
 
-1. The conditions we set meant shutdown will be blocked while atd is active and while `/run/.require` does not exist, so fix that and `rguard` will immediately unblock shutdown.
+2. The conditions we set mean shutdown will be blocked while `atd` is active and while `/run/.require` does not exist. Fix that and `rguard` will unblock shutdown.
 
     ```
     [root]# systemctl is-active atd
@@ -83,20 +90,31 @@ Block systemd-initiated poweroff/reboot/halt until configurable condition checks
     WARNING: Gracefully exiting due to receipt of signal 2
     ```
 
+### Instructions for daemon service (systemd)
 
-### Instructions for daemon service
+This repo ships an example unit `rguard.service`. **Important:** the default `ExecStart` uses `--run false` which will block shutdown forever unless you stop the service.
 
-1. Install the latest rpm from [Releases](https://github.com/ryran/reboot-guard/releases) or setup yum repo:
-    - `yum/dnf install http://people.redhat.com/rsawhill/rpms/latest-rsawaroha-release.rpm`
-    - `yum/dnf install reboot-guard`
-1. If you want the service to always block reboot/shutdown, requiring the service to be manually stopped or killed, simply run `systemctl daemon-reload; systemctl enable rguard --now` and you are done; otherwise, continue to next step
-1. Play with the options until you get them how you want them (see help page: `rguard --help`)
-1. Copy `/usr/lib/systemd/system/rguard.service` to `/etc/systemd/system` and set the `ExecStart=` directive to your liking
-1. Run: `systemctl daemon-reload; systemctl enable rguard --now`
-1. Check `systemctl status rguard -n50` or use `journalctl -fu rguard` to keep an eye on logs (turn up the `--loglevel` if necesary)
-1. Tweak `rguard.service` as required, and then re-run `systemctl daemon-reload; systemctl restart rguard`
-1. Give feedback by posting to the [Issue Tracker](https://github.com/ryran/reboot-guard/issues)
+1. Install the unit:
 
+    ```
+    sudo install -m 0644 rguard.service /etc/systemd/system/rguard.service
+    sudo systemctl daemon-reload
+    ```
+
+2. Edit `/etc/systemd/system/rguard.service` and set **exactly one** `ExecStart=` line to your desired policy.
+
+3. Enable + start:
+
+    ```
+    sudo systemctl enable --now rguard.service
+    ```
+
+4. Watch logs:
+
+    ```
+    systemctl status rguard -n50 --no-pager
+    journalctl -fu rguard
+    ```
 
 ### Help page
 
